@@ -87,6 +87,80 @@ export class PhotoShareStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
 
+    // Frontend hosting bucket
+    const frontendBucket = new s3.Bucket(this, 'FrontendBucket', {
+      bucketName: `frontend-${props.environment}-${cdk.Aws.ACCOUNT_ID}`,
+      websiteIndexDocument: 'index.html',
+      websiteErrorDocument: 'index.html', // For SPA routing
+      publicReadAccess: true,
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ACLS,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      cors: [
+        {
+          allowedHeaders: ['*'],
+          allowedMethods: [s3.HttpMethods.GET],
+          allowedOrigins: ['*'],
+        },
+      ],
+    });
+
+    // Cognito Identity Pool for S3 access
+    const identityPool = new cognito.CfnIdentityPool(this, 'PhotoIdentityPool', {
+      identityPoolName: `photo-identity-${props.environment}`,
+      allowUnauthenticatedIdentities: false,
+      cognitoIdentityProviders: [
+        {
+          clientId: userPoolClient.userPoolClientId,
+          providerName: userPool.userPoolProviderName,
+        },
+      ],
+    });
+
+    // IAM roles for authenticated users
+    const authenticatedRole = new iam.Role(this, 'AuthenticatedRole', {
+      assumedBy: new iam.FederatedPrincipal(
+        'cognito-identity.amazonaws.com',
+        {
+          StringEquals: {
+            'cognito-identity.amazonaws.com:aud': identityPool.ref,
+          },
+          'ForAnyValue:StringLike': {
+            'cognito-identity.amazonaws.com:amr': 'authenticated',
+          },
+        },
+        'sts:AssumeRoleWithWebIdentity'
+      ),
+      inlinePolicies: {
+        S3Policy: new iam.PolicyDocument({
+          statements: [
+            new iam.PolicyStatement({
+              effect: iam.Effect.ALLOW,
+              actions: ['s3:PutObject', 's3:GetObject', 's3:DeleteObject'],
+              resources: [`${photosBucket.bucketArn}/photos/\${cognito-identity.amazonaws.com:sub}/*`],
+            }),
+            new iam.PolicyStatement({
+              effect: iam.Effect.ALLOW,
+              actions: ['s3:ListBucket'],
+              resources: [photosBucket.bucketArn],
+              conditions: {
+                StringLike: {
+                  's3:prefix': ['photos/${cognito-identity.amazonaws.com:sub}/*'],
+                },
+              },
+            }),
+          ],
+        }),
+      },
+    });
+
+    // Attach roles to identity pool
+    new cognito.CfnIdentityPoolRoleAttachment(this, 'IdentityPoolRoleAttachment', {
+      identityPoolId: identityPool.ref,
+      roles: {
+        authenticated: authenticatedRole.roleArn,
+      },
+    });
+
     // CloudFront Distribution for photos
     const photosDistribution = new cloudfront.Distribution(this, 'PhotosDistribution', {
       defaultBehavior: {
@@ -96,6 +170,31 @@ export class PhotoShareStack extends cdk.Stack {
         originRequestPolicy: cloudfront.OriginRequestPolicy.CORS_S3_ORIGIN,
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
       },
+    });
+
+    // CloudFront Distribution for frontend
+    const frontendDistribution = new cloudfront.Distribution(this, 'FrontendDistribution', {
+      defaultBehavior: {
+        origin: origins.S3BucketOrigin.withOriginAccessControl(frontendBucket),
+        allowedMethods: cloudfront.AllowedMethods.ALLOW_GET_HEAD_OPTIONS,
+        cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
+        viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+      },
+      defaultRootObject: 'index.html',
+      errorResponses: [
+        {
+          httpStatus: 404,
+          responseHttpStatus: 200,
+          responsePagePath: '/index.html', // For SPA routing
+          ttl: cdk.Duration.minutes(0),
+        },
+        {
+          httpStatus: 403,
+          responseHttpStatus: 200,
+          responsePagePath: '/index.html', // For SPA routing
+          ttl: cdk.Duration.minutes(0),
+        },
+      ],
     });
 
     // Lambda Functions
@@ -220,6 +319,16 @@ export class PhotoShareStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'PhotosDistributionUrl', {
       value: `https://${photosDistribution.distributionDomainName}`,
       description: 'CloudFront Distribution URL for Photos',
+    });
+
+    new cdk.CfnOutput(this, 'IdentityPoolId', {
+      value: identityPool.ref,
+      description: 'Cognito Identity Pool ID',
+    });
+
+    new cdk.CfnOutput(this, 'FrontendUrl', {
+      value: `https://${frontendDistribution.distributionDomainName}`,
+      description: 'Frontend CloudFront Distribution URL',
     });
   }
 }

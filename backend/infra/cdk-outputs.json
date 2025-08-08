@@ -1,0 +1,13 @@
+{
+  "photo-share-dev": {
+    "UserPoolClientId": "42aigoebk4eip2h7vfsrj1cta",
+    "UserPoolId": "eu-central-1_3wIsBrVg0",
+    "ApiUrl": "https://xb8fu8nhl3.execute-api.eu-central-1.amazonaws.com/prod/",
+    "ThumbnailsBucketName": "thumbnails-dev-971422701143",
+    "PhotoShareApiEndpoint6C3A2A1D": "https://xb8fu8nhl3.execute-api.eu-central-1.amazonaws.com/prod/",
+    "IdentityPoolId": "eu-central-1:26bea4b6-4b20-45b1-b1a6-317aea886dca",
+    "PhotosDistributionUrl": "https://d2z0k9dhijl3ss.cloudfront.net",
+    "PhotosBucketName": "photos-dev-971422701143",
+    "FrontendUrl": "https://dj1pd3kw092m9.cloudfront.net"
+  }
+}
