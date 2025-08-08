@@ -237,20 +237,37 @@ After deployment, note the following outputs from CDK:
 
 #### Frontend Configuration
 
-Update your frontend configuration with the deployment outputs:
+1. **Copy the environment template**:
 
-```typescript
-// src/aws-config.ts
-export const awsConfig = {
-  region: 'your-region',
-  userPoolId: 'your-user-pool-id',
-  userPoolWebClientId: 'your-client-id',
-  identityPoolId: 'your-identity-pool-id',
-  apiGateway: {
-    endpoint: 'your-api-gateway-url',
-  },
-};
+```bash
+cd frontend
+cp .env.template .env
 ```
+
+2. **Update the `.env` file** with your deployment outputs:
+
+```bash
+# AWS Region
+VITE_AWS_REGION=eu-central-1
+
+# Cognito Configuration (from CDK outputs)
+VITE_USER_POOL_ID=your-user-pool-id
+VITE_USER_POOL_CLIENT_ID=your-client-id
+VITE_IDENTITY_POOL_ID=your-identity-pool-id
+
+# API Gateway URL (from CDK outputs)
+VITE_API_URL=your-api-gateway-url
+
+# S3 Bucket Names (from CDK outputs)
+VITE_PHOTOS_BUCKET=your-photos-bucket-name
+
+# Application Configuration
+VITE_APP_NAME="Photo Share App"
+VITE_MAX_FILE_SIZE=10485760
+VITE_ALLOWED_FILE_TYPES=image/jpeg,image/png,image/gif,image/webp
+```
+
+The frontend uses Vite environment variables that are automatically loaded and configured in `src/main.ts`.
 
 ## 🔧 Development Workflow
 
