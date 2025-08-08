@@ -25,8 +25,10 @@ const PROCESSED_BUCKET = process.env.PROCESSED_BUCKET_NAME!;
 
 const corsHeaders: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token',
+  'Access-Control-Allow-Headers':
+    'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent,X-Amz-Content-Sha256,Accept,Origin,Referer',
   'Access-Control-Allow-Methods': 'OPTIONS,GET,POST,PUT,DELETE',
+  'Access-Control-Allow-Credentials': 'true',
 };
 
 function getUserIdFromEvent(event: APIGatewayProxyEvent): string {

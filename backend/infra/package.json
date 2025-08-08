@@ -9,12 +9,12 @@
     "build": "tsc",
     "watch": "tsc -w",
     "test": "jest",
-    "deploy": "cdk deploy",
-    "deploy:dev": "cdk deploy --profile photoapp-dev --context environment=dev",
-    "deploy:prod": "cdk deploy --profile photoapp-prod --context environment=prod",
+    "deploy": "npm run build && cdk deploy",
+    "deploy:dev": "npm run build && cdk deploy --profile photoapp-dev --context environment=dev",
+    "deploy:prod": "npm run build && cdk deploy --profile photoapp-prod --context environment=prod",
     "destroy": "cdk destroy",
-    "diff": "cdk diff",
-    "synth": "cdk synth",
+    "diff": "npm run build && cdk diff",
+    "synth": "npm run build && cdk synth",
     "bootstrap": "cdk bootstrap --profile photoapp-dev"
   },
   "devDependencies": {

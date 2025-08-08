@@ -319,7 +319,7 @@ const searchQuery = ref<string>('');
 const selectedTag = ref<string>('');
 
 // Debounce search input
-let searchTimeout: number;
+let searchTimeout: ReturnType<typeof setTimeout>;
 const debouncedSearch = (): void => {
   clearTimeout(searchTimeout);
   searchTimeout = setTimeout(() => {
