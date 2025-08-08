@@ -1,4 +1,5 @@
 export interface Photo {
+  id: string; // Primary key (same as photoId)
   userId: string;
   photoId: string;
   title: string;

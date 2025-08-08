@@ -48,23 +48,21 @@ export class PhotoShareStack extends cdk.Stack {
       },
     });
 
-    // DynamoDB Tables
-    const photosTable = new dynamodb.Table(this, 'PhotosTable', {
-      tableName: `photos-${props.environment}`,
-      partitionKey: { name: 'id', type: dynamodb.AttributeType.STRING },
-      removalPolicy: cdk.RemovalPolicy.DESTROY,
-      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-    });
-
-    photosTable.addGlobalSecondaryIndex({
-      indexName: 'UserIndex',
-      partitionKey: { name: 'userId', type: dynamodb.AttributeType.STRING },
-      sortKey: { name: 'createdAt', type: dynamodb.AttributeType.STRING },
-    });
+    // DynamoDB Tables - import existing table to avoid drift
+    const photosTable = dynamodb.Table.fromTableName(this, 'PhotosTable', `photos-${props.environment}`);
 
     // S3 Buckets
     const photosBucket = new s3.Bucket(this, 'PhotosBucket', {
       bucketName: `photos-${props.environment}-${cdk.Aws.ACCOUNT_ID}`,
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      versioned: false,
+      lifecycleRules: [
+        {
+          id: 'DeleteIncompleteMultipartUploads',
+          abortIncompleteMultipartUploadAfter: cdk.Duration.days(1),
+        },
+      ],
       cors: [
         {
           allowedHeaders: ['*'],
@@ -84,6 +82,8 @@ export class PhotoShareStack extends cdk.Stack {
 
     const thumbnailsBucket = new s3.Bucket(this, 'ThumbnailsBucket', {
       bucketName: `thumbnails-${props.environment}-${cdk.Aws.ACCOUNT_ID}`,
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
 
@@ -287,6 +287,12 @@ export class PhotoShareStack extends cdk.Stack {
     // Upload endpoint
     const uploadResource = api.root.addResource('upload');
     uploadResource.addMethod('POST', new apigateway.LambdaIntegration(photoApiFunction), {
+      authorizer,
+    });
+
+    // Upload URL endpoint for pre-signed URLs
+    const uploadUrlResource = api.root.addResource('upload-url');
+    uploadUrlResource.addMethod('POST', new apigateway.LambdaIntegration(photoApiFunction), {
       authorizer,
     });
 

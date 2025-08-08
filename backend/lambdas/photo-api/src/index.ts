@@ -50,6 +50,7 @@ async function getPhotos(event: APIGatewayProxyEvent): Promise<APIGatewayProxyRe
 
     const command = new QueryCommand({
       TableName: PHOTOS_TABLE,
+      IndexName: 'UserIndex',
       KeyConditionExpression: 'userId = :userId',
       ExpressionAttributeValues: {
         ':userId': userId,
@@ -116,6 +117,7 @@ async function createPhoto(event: APIGatewayProxyEvent): Promise<APIGatewayProxy
     const now = new Date().toISOString();
 
     const photo: Photo = {
+      id: photoId, // Primary key
       userId,
       photoId,
       title: body.title || 'Untitled',

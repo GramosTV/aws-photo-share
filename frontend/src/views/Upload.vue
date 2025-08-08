@@ -138,7 +138,6 @@
 
 <script setup lang="ts">
 import { ref } from 'vue';
-import { uploadData } from 'aws-amplify/storage';
 import { post } from 'aws-amplify/api';
 import type { FileWithMetadata, UploadProgress } from '@/types';
 
@@ -224,35 +223,49 @@ const handleUpload = async (): Promise<void> => {
       const progressItem = uploadProgress.value[i];
 
       try {
-        // Generate unique filename
-        const timestamp = Date.now();
-        const extension = file.name.split('.').pop();
-        const fileName = `${timestamp}-${Math.random().toString(36).substr(2, 9)}.${extension}`;
-
-        // Upload to S3
-        const uploadResult = await uploadData({
-          path: `photos/${fileName}`,
-          data: file,
+        // Step 1: Get pre-signed upload URL from our API
+        const uploadUrlResponse = await post({
+          apiName: 'PhotoAPI',
+          path: '/upload-url',
           options: {
-            onProgress: ({ transferredBytes, totalBytes }) => {
-              if (totalBytes) {
-                progressItem.progress = Math.round((transferredBytes / totalBytes) * 100);
-              }
+            body: {
+              fileName: file.name,
+              fileType: file.type,
             },
           },
-        }).result;
+        }).response;
 
-        // Save metadata to API
+        const uploadData = (await uploadUrlResponse.body.json()) as unknown as {
+          uploadUrl: string;
+          s3Key: string;
+        };
+
+        // Step 2: Upload directly to S3 using pre-signed URL
+        const uploadResponse = await fetch(uploadData.uploadUrl, {
+          method: 'PUT',
+          body: file,
+          headers: {
+            'Content-Type': file.type,
+          },
+        });
+
+        if (!uploadResponse.ok) {
+          throw new Error(`Upload failed: ${uploadResponse.status}`);
+        }
+
+        progressItem.progress = 100;
+
+        // Step 3: Save metadata to our API
         await post({
           apiName: 'PhotoAPI',
           path: '/photos',
           options: {
             body: {
               title: file.title || file.name,
-              fileName: fileName,
+              s3Key: uploadData.s3Key,
+              fileName: file.name,
               fileSize: file.size,
-              contentType: file.type,
-              url: uploadResult.path,
+              mimeType: file.type,
             },
           },
         });
