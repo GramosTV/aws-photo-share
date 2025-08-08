@@ -1,0 +1,25 @@
+{
+  "name": "image-processor",
+  "version": "1.0.0",
+  "description": "Lambda function for processing uploaded images",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.600.0",
+    "@aws-sdk/lib-dynamodb": "^3.600.0",
+    "@aws-sdk/client-s3": "^3.600.0",
+    "@aws-sdk/client-rekognition": "^3.600.0",
+    "sharp": "^0.33.4",
+    "uuid": "^10.0.0"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.140",
+    "@types/node": "^20.14.10",
+    "@types/uuid": "^10.0.0",
+    "typescript": "^5.5.3"
+  }
+}

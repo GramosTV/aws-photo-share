@@ -87,6 +87,21 @@ export class PhotoShareStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
 
+    // Processed images bucket for optimized/compressed images
+    const processedImagesBucket = new s3.Bucket(this, 'ProcessedImagesBucket', {
+      bucketName: `photo-app-processed-${props.environment}-${cdk.Aws.ACCOUNT_ID}`,
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      cors: [
+        {
+          allowedHeaders: ['*'],
+          allowedMethods: [s3.HttpMethods.GET, s3.HttpMethods.HEAD],
+          allowedOrigins: ['*'],
+        },
+      ],
+    });
+
     // Frontend hosting bucket
     const frontendBucket = new s3.Bucket(this, 'FrontendBucket', {
       bucketName: `frontend-${props.environment}-${cdk.Aws.ACCOUNT_ID}`,
@@ -235,6 +250,27 @@ export class PhotoShareStack extends cdk.Stack {
       memorySize: 1024,
     });
 
+    // Image Processing Lambda Function
+    const imageProcessorFunction = new lambda.Function(this, 'ImageProcessorFunction', {
+      functionName: `image-processor-${props.environment}`,
+      runtime: lambda.Runtime.NODEJS_18_X,
+      handler: 'index.handler',
+      code: lambda.Code.fromAsset(path.join(__dirname, '../../lambdas/image-processor'), {
+        bundling: {
+          image: lambda.Runtime.NODEJS_18_X.bundlingImage,
+          command: ['bash', '-c', 'npm install && npm run build && cp -r dist/* /asset-output/'],
+        },
+      }),
+      environment: {
+        PHOTOS_TABLE: photosTable.tableName,
+        PROCESSED_BUCKET: processedImagesBucket.bucketName,
+        THUMBNAILS_BUCKET: thumbnailsBucket.bucketName,
+        ENABLE_REKOGNITION: 'true',
+      },
+      timeout: cdk.Duration.minutes(5),
+      memorySize: 2048,
+    });
+
     // IAM Permissions
     photosTable.grantReadWriteData(photoApiFunction);
     photosBucket.grantReadWrite(photoApiFunction);
@@ -242,10 +278,26 @@ export class PhotoShareStack extends cdk.Stack {
     thumbnailsBucket.grantReadWrite(thumbnailFunction);
     photosBucket.grantRead(thumbnailFunction);
 
-    // S3 Event Notification
+    // Image processor permissions
+    photosTable.grantReadWriteData(imageProcessorFunction);
+    photosBucket.grantRead(imageProcessorFunction);
+    processedImagesBucket.grantReadWrite(imageProcessorFunction);
+    thumbnailsBucket.grantReadWrite(imageProcessorFunction);
+
+    // Add Rekognition permissions for image processor
+    imageProcessorFunction.addToRolePolicy(
+      new iam.PolicyStatement({
+        effect: iam.Effect.ALLOW,
+        actions: ['rekognition:DetectLabels', 'rekognition:DetectObjects', 'rekognition:DetectText'],
+        resources: ['*'],
+      })
+    );
+
+    // S3 Event Notifications - Only use image processor to avoid conflicts
     photosBucket.addEventNotification(
       s3.EventType.OBJECT_CREATED,
-      new s3notifications.LambdaDestination(thumbnailFunction)
+      new s3notifications.LambdaDestination(imageProcessorFunction),
+      { prefix: 'uploads/' } // Only trigger for files in uploads/ folder
     );
 
     // API Gateway
@@ -320,6 +372,11 @@ export class PhotoShareStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'ThumbnailsBucketName', {
       value: thumbnailsBucket.bucketName,
       description: 'Thumbnails S3 Bucket Name',
+    });
+
+    new cdk.CfnOutput(this, 'ProcessedImagesBucketName', {
+      value: processedImagesBucket.bucketName,
+      description: 'Processed Images S3 Bucket Name',
     });
 
     new cdk.CfnOutput(this, 'PhotosDistributionUrl', {
