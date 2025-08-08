@@ -1,0 +1,31 @@
+{
+  "name": "aws-photo-share-infrastructure",
+  "version": "1.0.0",
+  "description": "AWS CDK Infrastructure for Photo Sharing App",
+  "bin": {
+    "photo-share-infra": "bin/photo-share-infra.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc -w",
+    "test": "jest",
+    "deploy": "cdk deploy",
+    "deploy:dev": "cdk deploy --profile photoapp-dev --context environment=dev",
+    "deploy:prod": "cdk deploy --profile photoapp-prod --context environment=prod",
+    "destroy": "cdk destroy",
+    "diff": "cdk diff",
+    "synth": "cdk synth",
+    "bootstrap": "cdk bootstrap --profile photoapp-dev"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.13",
+    "@types/node": "^22.5.4",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.2.5",
+    "typescript": "^5.6.2"
+  },
+  "dependencies": {
+    "aws-cdk-lib": "^2.161.1",
+    "constructs": "^10.3.0"
+  }
+}

@@ -1,63 +1,77 @@
-# Infrastructure as Code
+# AWS Photo Share Infrastructure
 
-## Description
+## Infrastructure as Code with AWS CDK
 
-This directory contains Infrastructure as Code (IaC) templates for deploying the AWS Serverless Photo Sharing application.
+This directory contains the AWS CDK infrastructure code for the Photo Share application.
 
-## Supported IaC Tools
+### Prerequisites
 
-Choose one of the following deployment methods:
+1. Install AWS CLI and configure your credentials
+2. Install Node.js 18+ and npm
+3. Install AWS CDK globally: `npm install -g aws-cdk`
 
-### 1. AWS SAM (Recommended)
+### Deployment Commands
 
-- `template.yaml` - SAM template
-- `samconfig.toml` - SAM configuration
+1. **Install dependencies**:
 
-### 2. AWS CDK
-
-- `app.py` or `app.js` - CDK application
-- `cdk.json` - CDK configuration
-
-### 3. Serverless Framework
-
-- `serverless.yml` - Serverless configuration
-
-### 4. CloudFormation
-
-- `cloudformation.yaml` - Raw CloudFormation template
-
-## Deployment Instructions
-
-### Using AWS SAM
-
-1. Install SAM CLI
-2. Configure AWS CLI profile: `aws configure --profile photoapp-dev`
-3. Deploy:
    ```bash
-   sam build
-   sam deploy --guided --profile photoapp-dev
+   npm install
    ```
 
-### Using AWS CDK
+2. **Build the TypeScript**:
 
-1. Install CDK: `npm install -g aws-cdk`
-2. Configure AWS CLI profile: `aws configure --profile photoapp-dev`
-3. Deploy:
    ```bash
-   cdk deploy --profile photoapp-dev
+   npm run build
    ```
 
-## Environment Variables
+3. **Bootstrap CDK (first time only)**:
 
-The following environment variables will be output after deployment:
+   ```bash
+   npm run bootstrap
+   ```
 
-- Cognito User Pool ID
-- Cognito User Pool Client ID
+4. **Deploy to development environment**:
+
+   ```bash
+   npm run deploy:dev
+   ```
+
+5. **Deploy to production environment**:
+
+   ```bash
+   npm run deploy:prod
+   ```
+
+6. **Destroy the stack**:
+   ```bash
+   npm run destroy:dev
+   # or
+   npm run destroy:prod
+   ```
+
+### Environment Configuration
+
+The stack supports multiple environments (dev, prod) with different configurations:
+
+- Development: `cdk deploy PhotoShareStack-dev`
+- Production: `cdk deploy PhotoShareStack-prod`
+
+### Infrastructure Components
+
+- **Cognito User Pool**: Authentication and user management
+- **DynamoDB Table**: Photo metadata storage
+- **S3 Buckets**: Photo storage and thumbnails
+- **CloudFront**: Global content delivery
+- **Lambda Functions**: API handlers and thumbnail generation
+- **API Gateway**: RESTful API endpoints
+
+### Output Values
+
+After deployment, the stack outputs important values like:
+
+- User Pool ID and Client ID
 - API Gateway URL
-- S3 Bucket Names
-- CloudFront Distribution URL
+- S3 bucket names
+- CloudFront distribution URL
 
-## Region Configuration
-
-Default region: `eu-central-1`
-To change the region, update the configuration in your chosen IaC tool.
+These values should be used to configure the frontend application.

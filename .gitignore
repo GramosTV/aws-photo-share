@@ -9,6 +9,11 @@ build/
 .next/
 .nuxt/
 
+# TypeScript compilation outputs (CDK infrastructure)
+backend/infra/**/*.js
+backend/infra/**/*.d.ts
+backend/infra/**/*.js.map
+
 # Environment variables
 .env
 .env.local

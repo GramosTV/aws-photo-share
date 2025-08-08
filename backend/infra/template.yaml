@@ -1,0 +1,452 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: 'AWS Serverless Photo Sharing App - Vue Edition'
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, staging, prod]
+    Description: Environment name
+
+  Region:
+    Type: String
+    Default: eu-central-1
+    Description: AWS Region for deployment
+
+Conditions:
+  IsProd: !Equals [!Ref Environment, prod]
+
+Globals:
+  Function:
+    Timeout: 30
+    Runtime: nodejs18.x
+    Environment:
+      Variables:
+        REGION: !Ref Region
+        ENVIRONMENT: !Ref Environment
+        PHOTOS_TABLE: !Ref PhotosTable
+        PHOTOS_BUCKET: !Ref PhotosBucket
+        THUMBNAILS_BUCKET: !Ref ThumbnailsBucket
+    Architectures:
+      - x86_64
+
+Resources:
+  # IAM Role for Cognito SMS MFA (Production only)
+  CognitoSMSRole:
+    Type: AWS::IAM::Role
+    Condition: IsProd
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: cognito-idp.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: CognitoSMSPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sns:Publish
+                Resource: '*'
+  # Cognito User Pool
+  PhotoAppUserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub 'photo-app-${Environment}-users'
+      AutoVerifiedAttributes:
+        - email
+      MfaConfiguration: !If [IsProd, OPTIONAL, 'OFF']
+      EnabledMfas: !If
+        - IsProd
+        - - SMS_MFA
+          - SOFTWARE_TOKEN_MFA
+        - !Ref 'AWS::NoValue'
+      SmsConfiguration: !If
+        - IsProd
+        - SnsCallerArn: !GetAtt CognitoSMSRole.Arn
+        - !Ref 'AWS::NoValue'
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireUppercase: true
+          RequireLowercase: true
+          RequireNumbers: true
+          RequireSymbols: false
+      Schema:
+        - Name: email
+          AttributeDataType: String
+          Required: true
+          Mutable: true
+        - Name: name
+          AttributeDataType: String
+          Required: true
+          Mutable: true
+      UserPoolTags:
+        Environment: !Ref Environment
+        Application: PhotoSharingApp
+
+  # Cognito User Pool Client
+  PhotoAppUserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      UserPoolId: !Ref PhotoAppUserPool
+      ClientName: !Sub 'photo-app-${Environment}-client'
+      GenerateSecret: false
+      ExplicitAuthFlows:
+        - ALLOW_USER_SRP_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+      SupportedIdentityProviders:
+        - COGNITO
+      CallbackURLs:
+        - http://localhost:3000
+        - !Sub 'https://${CloudFrontDistribution.DomainName}'
+      LogoutURLs:
+        - http://localhost:3000
+        - !Sub 'https://${CloudFrontDistribution.DomainName}'
+      AllowedOAuthFlows:
+        - code
+      AllowedOAuthScopes:
+        - email
+        - openid
+        - profile
+      AllowedOAuthFlowsUserPoolClient: true
+
+  # DynamoDB Table for Photo Metadata
+  PhotosTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub 'photo-app-${Environment}-photos'
+      BillingMode: ON_DEMAND
+      AttributeDefinitions:
+        - AttributeName: userId
+          AttributeType: S
+        - AttributeName: photoId
+          AttributeType: S
+        - AttributeName: createdAt
+          AttributeType: S
+      KeySchema:
+        - AttributeName: userId
+          KeyType: HASH
+        - AttributeName: photoId
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: TimeIndex
+          KeySchema:
+            - AttributeName: userId
+              KeyType: HASH
+            - AttributeName: createdAt
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+
+  # S3 Bucket for Original Photos
+  PhotosBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub 'photo-app-${Environment}-photos-${AWS::AccountId}'
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteOldVersions
+            Status: Enabled
+            NoncurrentVersionExpirationInDays: 30
+          - Id: DeleteIncompleteMultipartUploads
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 7
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders: ['*']
+            AllowedMethods: [GET, PUT, POST, DELETE, HEAD]
+            AllowedOrigins: ['*']
+            MaxAge: 3000
+      NotificationConfiguration:
+        LambdaConfigurations:
+          - Event: s3:ObjectCreated:*
+            Function: !GetAtt ThumbnailFunction.Arn
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: uploads/
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  # S3 Bucket for Thumbnails
+  ThumbnailsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub 'photo-app-${Environment}-thumbnails-${AWS::AccountId}'
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteOldVersions
+            Status: Enabled
+            NoncurrentVersionExpirationInDays: 30
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders: ['*']
+            AllowedMethods: [GET, HEAD]
+            AllowedOrigins: ['*']
+            MaxAge: 3000
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  # S3 Bucket for Frontend
+  FrontendBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub 'photo-app-${Environment}-frontend-${AWS::AccountId}'
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      WebsiteConfiguration:
+        IndexDocument: index.html
+        ErrorDocument: error.html
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: false
+        BlockPublicPolicy: false
+        IgnorePublicAcls: false
+        RestrictPublicBuckets: false
+
+  # Frontend Bucket Policy
+  FrontendBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref FrontendBucket
+      PolicyDocument:
+        Statement:
+          - Sid: PublicReadGetObject
+            Effect: Allow
+            Principal: '*'
+            Action: s3:GetObject
+            Resource: !Sub '${FrontendBucket}/*'
+
+  # CloudFront Distribution
+  CloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Origins:
+          - Id: S3Origin
+            DomainName: !GetAtt FrontendBucket.DomainName
+            S3OriginConfig:
+              OriginAccessIdentity: ''
+        Enabled: true
+        DefaultRootObject: index.html
+        DefaultCacheBehavior:
+          TargetOriginId: S3Origin
+          ViewerProtocolPolicy: redirect-to-https
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6 # Managed-CachingOptimized
+        CustomErrorResponses:
+          - ErrorCode: 403
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+          - ErrorCode: 404
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+        PriceClass: PriceClass_100
+
+  # API Gateway
+  PhotoApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: !Sub 'photo-app-${Environment}-api'
+      StageName: !Ref Environment
+      Cors:
+        AllowMethods: "'*'"
+        AllowHeaders: "'*'"
+        AllowOrigin: "'*'"
+      Auth:
+        DefaultAuthorizer: CognitoAuthorizer
+        Authorizers:
+          CognitoAuthorizer:
+            UserPoolArn: !GetAtt PhotoAppUserPool.Arn
+
+  # Lambda Functions
+  PhotoApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub 'photo-app-${Environment}-api'
+      CodeUri: ../lambdas/photo-api/
+      Handler: dist/index.handler
+      Environment:
+        Variables:
+          COGNITO_USER_POOL_ID: !Ref PhotoAppUserPool
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref PhotosTable
+        - S3ReadPolicy:
+            BucketName: !Ref PhotosBucket
+        - S3ReadPolicy:
+            BucketName: !Ref ThumbnailsBucket
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - s3:PutObject
+                - s3:GetObject
+                - s3:DeleteObject
+              Resource:
+                - !Sub '${PhotosBucket}/*'
+                - !Sub '${ThumbnailsBucket}/*'
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: 'es2020'
+        Sourcemap: true
+        EntryPoints:
+          - src/index.ts
+      Events:
+        GetPhotos:
+          Type: Api
+          Properties:
+            RestApiId: !Ref PhotoApi
+            Path: /photos
+            Method: get
+        CreatePhoto:
+          Type: Api
+          Properties:
+            RestApiId: !Ref PhotoApi
+            Path: /photos
+            Method: post
+        GetPhoto:
+          Type: Api
+          Properties:
+            RestApiId: !Ref PhotoApi
+            Path: /photos/{photoId}
+            Method: get
+        DeletePhoto:
+          Type: Api
+          Properties:
+            RestApiId: !Ref PhotoApi
+            Path: /photos/{photoId}
+            Method: delete
+        SharePhoto:
+          Type: Api
+          Properties:
+            RestApiId: !Ref PhotoApi
+            Path: /photos/{photoId}/share
+            Method: post
+        GetUploadUrl:
+          Type: Api
+          Properties:
+            RestApiId: !Ref PhotoApi
+            Path: /upload-url
+            Method: post
+
+  ThumbnailFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub 'photo-app-${Environment}-thumbnail'
+      CodeUri: ../lambdas/thumbnail/
+      Handler: dist/index.handler
+      Timeout: 60
+      MemorySize: 512
+      Policies:
+        - S3ReadPolicy:
+            BucketName: !Ref PhotosBucket
+        - S3WritePolicy:
+            BucketName: !Ref ThumbnailsBucket
+        - DynamoDBCrudPolicy:
+            TableName: !Ref PhotosTable
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: 'es2020'
+        Sourcemap: true
+        EntryPoints:
+          - src/index.ts
+        External:
+          - 'sharp'
+
+  # Permission for S3 to invoke Lambda
+  ThumbnailFunctionS3Permission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ThumbnailFunction
+      Action: lambda:InvokeFunction
+      Principal: s3.amazonaws.com
+      SourceArn: !Sub '${PhotosBucket}/*'
+
+Outputs:
+  # API Gateway
+  ApiGatewayUrl:
+    Description: 'API Gateway URL'
+    Value: !Sub 'https://${PhotoApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}'
+    Export:
+      Name: !Sub '${AWS::StackName}-ApiUrl'
+
+  # Cognito
+  CognitoUserPoolId:
+    Description: 'Cognito User Pool ID'
+    Value: !Ref PhotoAppUserPool
+    Export:
+      Name: !Sub '${AWS::StackName}-UserPoolId'
+
+  CognitoUserPoolClientId:
+    Description: 'Cognito User Pool Client ID'
+    Value: !Ref PhotoAppUserPoolClient
+    Export:
+      Name: !Sub '${AWS::StackName}-UserPoolClientId'
+
+  # S3 Buckets
+  PhotosBucketName:
+    Description: 'S3 Bucket for Photos'
+    Value: !Ref PhotosBucket
+    Export:
+      Name: !Sub '${AWS::StackName}-PhotosBucket'
+
+  ThumbnailsBucketName:
+    Description: 'S3 Bucket for Thumbnails'
+    Value: !Ref ThumbnailsBucket
+    Export:
+      Name: !Sub '${AWS::StackName}-ThumbnailsBucket'
+
+  FrontendBucketName:
+    Description: 'S3 Bucket for Frontend'
+    Value: !Ref FrontendBucket
+    Export:
+      Name: !Sub '${AWS::StackName}-FrontendBucket'
+
+  # CloudFront
+  CloudFrontUrl:
+    Description: 'CloudFront Distribution URL'
+    Value: !Sub 'https://${CloudFrontDistribution.DomainName}'
+    Export:
+      Name: !Sub '${AWS::StackName}-CloudFrontUrl'
+
+  # DynamoDB
+  PhotosTableName:
+    Description: 'DynamoDB Photos Table Name'
+    Value: !Ref PhotosTable
+    Export:
+      Name: !Sub '${AWS::StackName}-PhotosTable'
