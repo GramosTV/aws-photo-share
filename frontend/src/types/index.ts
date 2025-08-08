@@ -5,9 +5,20 @@ export interface Photo {
   title: string;
   url: string;
   thumbnailUrl?: string;
+  processedUrl?: string;
+  processedKey?: string;
   userId: string;
   createdAt: string;
   updatedAt: string;
+  processingStatus?: 'pending' | 'processing' | 'completed' | 'failed';
+  processedAt?: string;
+  autoTags?: string[];
+  manualTags?: string[];
+  dimensions?: {
+    width: number;
+    height: number;
+  };
+  rekognitionConfidence?: number;
 }
 
 export interface FileWithMetadata extends File {

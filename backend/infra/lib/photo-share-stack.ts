@@ -187,6 +187,17 @@ export class PhotoShareStack extends cdk.Stack {
       },
     });
 
+    // CloudFront Distribution for processed images
+    const processedDistribution = new cloudfront.Distribution(this, 'ProcessedImagesDistribution', {
+      defaultBehavior: {
+        origin: origins.S3BucketOrigin.withOriginAccessControl(processedImagesBucket),
+        allowedMethods: cloudfront.AllowedMethods.ALLOW_GET_HEAD_OPTIONS,
+        cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
+        originRequestPolicy: cloudfront.OriginRequestPolicy.CORS_S3_ORIGIN,
+        viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+      },
+    });
+
     // CloudFront Distribution for frontend
     const frontendDistribution = new cloudfront.Distribution(this, 'FrontendDistribution', {
       defaultBehavior: {
@@ -227,6 +238,7 @@ export class PhotoShareStack extends cdk.Stack {
         PHOTOS_TABLE_NAME: photosTable.tableName,
         PHOTOS_BUCKET_NAME: photosBucket.bucketName,
         THUMBNAILS_BUCKET_NAME: thumbnailsBucket.bucketName,
+        PROCESSED_BUCKET_NAME: processedImagesBucket.bucketName,
         USER_POOL_ID: userPool.userPoolId,
         USER_POOL_CLIENT_ID: userPoolClient.userPoolClientId,
       },
@@ -275,6 +287,7 @@ export class PhotoShareStack extends cdk.Stack {
     photosTable.grantReadWriteData(photoApiFunction);
     photosBucket.grantReadWrite(photoApiFunction);
     thumbnailsBucket.grantReadWrite(photoApiFunction);
+    processedImagesBucket.grantRead(photoApiFunction);
     thumbnailsBucket.grantReadWrite(thumbnailFunction);
     photosBucket.grantRead(thumbnailFunction);
 
@@ -382,6 +395,11 @@ export class PhotoShareStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'PhotosDistributionUrl', {
       value: `https://${photosDistribution.distributionDomainName}`,
       description: 'CloudFront Distribution URL for Photos',
+    });
+
+    new cdk.CfnOutput(this, 'ProcessedImagesDistributionUrl', {
+      value: `https://${processedDistribution.distributionDomainName}`,
+      description: 'CloudFront Distribution URL for Processed Images',
     });
 
     new cdk.CfnOutput(this, 'IdentityPoolId', {

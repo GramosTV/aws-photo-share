@@ -47,7 +47,47 @@
 
     <!-- Recent Photos Section -->
     <div v-if="isAuthenticated">
-      <h2 class="text-2xl font-bold text-gray-900 mb-6">Recent Photos</h2>
+      <div class="flex justify-between items-center mb-6">
+        <h2 class="text-2xl font-bold text-gray-900">Your Photos</h2>
+
+        <!-- Search Controls -->
+        <div class="flex space-x-4">
+          <div class="relative">
+            <input
+              v-model="searchQuery"
+              @input="debouncedSearch"
+              type="text"
+              placeholder="Search photos..."
+              class="pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            />
+            <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+              <svg class="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                ></path>
+              </svg>
+            </div>
+          </div>
+
+          <select
+            v-model="selectedTag"
+            @change="handleTagFilter"
+            class="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          >
+            <option value="">All Tags</option>
+            <option v-for="tag in availableTags" :key="tag" :value="tag">
+              {{ tag }}
+            </option>
+          </select>
+
+          <button @click="clearFilters" class="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg">
+            Clear Filters
+          </button>
+        </div>
+      </div>
 
       <div v-if="loading" class="text-center py-8">
         <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
@@ -69,7 +109,7 @@
           class="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-shadow"
         >
           <img
-            :src="photo.thumbnailUrl || photo.url"
+            :src="getImageUrl(photo)"
             :alt="photo.title"
             class="w-full h-48 object-cover"
             @error="handleImageError"
@@ -77,6 +117,35 @@
           <div class="p-4">
             <h3 class="font-semibold text-gray-900 truncate">{{ photo.title }}</h3>
             <p class="text-sm text-gray-500">{{ formatDate(photo.createdAt) }}</p>
+
+            <!-- Auto Tags -->
+            <div v-if="photo.autoTags && photo.autoTags.length > 0" class="mt-2">
+              <div class="flex flex-wrap gap-1">
+                <span
+                  v-for="tag in photo.autoTags.slice(0, 3)"
+                  :key="tag"
+                  class="inline-block bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded"
+                >
+                  {{ tag }}
+                </span>
+                <span
+                  v-if="photo.autoTags.length > 3"
+                  class="inline-block bg-gray-100 text-gray-600 text-xs px-2 py-1 rounded"
+                >
+                  +{{ photo.autoTags.length - 3 }} more
+                </span>
+              </div>
+            </div>
+
+            <!-- Processing Status -->
+            <div v-if="photo.processedAt" class="mt-2">
+              <span class="inline-block bg-green-100 text-green-800 text-xs px-2 py-1 rounded"> ✓ Processed </span>
+            </div>
+            <div v-else-if="photo.processingStatus === 'processing'" class="mt-2">
+              <span class="inline-block bg-yellow-100 text-yellow-800 text-xs px-2 py-1 rounded">
+                ⏳ Processing...
+              </span>
+            </div>
           </div>
         </div>
       </div>
@@ -99,7 +168,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, computed } from 'vue';
 import { getCurrentUser } from 'aws-amplify/auth';
 import { get } from 'aws-amplify/api';
 import type { Photo } from '@/types';
@@ -107,6 +176,27 @@ import type { Photo } from '@/types';
 const isAuthenticated = ref<boolean>(false);
 const loading = ref<boolean>(false);
 const photos = ref<Photo[]>([]);
+const searchQuery = ref<string>('');
+const selectedTag = ref<string>('');
+
+// Debounce search input
+let searchTimeout: number;
+const debouncedSearch = (): void => {
+  clearTimeout(searchTimeout);
+  searchTimeout = setTimeout(() => {
+    loadPhotos();
+  }, 300);
+};
+
+// Get unique tags from all photos
+const availableTags = computed(() => {
+  const tags = new Set<string>();
+  photos.value.forEach((photo) => {
+    photo.autoTags?.forEach((tag) => tags.add(tag));
+    photo.manualTags?.forEach((tag) => tags.add(tag));
+  });
+  return Array.from(tags).sort();
+});
 
 // Check authentication status
 const checkAuthStatus = async (): Promise<void> => {
@@ -119,13 +209,25 @@ const checkAuthStatus = async (): Promise<void> => {
   }
 };
 
-// Load user's photos
+// Load user's photos with optional search/filter parameters
 const loadPhotos = async (): Promise<void> => {
   loading.value = true;
   try {
+    const queryParams = new URLSearchParams();
+
+    if (searchQuery.value.trim()) {
+      queryParams.append('search', searchQuery.value.trim());
+    }
+
+    if (selectedTag.value) {
+      queryParams.append('tag', selectedTag.value);
+    }
+
+    const path = queryParams.toString() ? `/photos?${queryParams.toString()}` : '/photos';
+
     const response = await get({
       apiName: 'PhotoAPI',
-      path: '/photos',
+      path,
     }).response;
 
     const data = (await response.body.json()) as unknown as { photos: Photo[] };
@@ -136,6 +238,23 @@ const loadPhotos = async (): Promise<void> => {
   } finally {
     loading.value = false;
   }
+};
+
+// Handle tag filter change
+const handleTagFilter = (): void => {
+  loadPhotos();
+};
+
+// Clear all filters
+const clearFilters = (): void => {
+  searchQuery.value = '';
+  selectedTag.value = '';
+  loadPhotos();
+};
+
+// Get best available image URL (processed > thumbnail > original)
+const getImageUrl = (photo: Photo): string => {
+  return photo.processedUrl || photo.thumbnailUrl || photo.url;
 };
 
 // Handle image load errors

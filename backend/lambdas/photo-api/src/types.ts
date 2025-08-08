@@ -5,14 +5,22 @@ export interface Photo {
   title: string;
   description?: string;
   s3Key: string;
+  processedKey?: string; // Key for processed/optimized image
   fileName: string;
   fileSize: number;
+  processedSize?: number; // Size of processed image
   mimeType: string;
+  width?: number; // Image dimensions
+  height?: number;
+  format?: string; // Image format
   createdAt: string;
   updatedAt: string;
   isPublic: boolean;
   tags: string[];
+  autoTags?: string[]; // Tags from Rekognition
+  rekognitionConfidence?: number;
   thumbnailKey?: string;
+  thumbnailSize?: number;
   thumbnails?: {
     small?: string;
     medium?: string;

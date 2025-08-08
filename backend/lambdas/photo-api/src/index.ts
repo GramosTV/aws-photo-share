@@ -18,9 +18,10 @@ const dynamoClient = new DynamoDBClient({ region: process.env.REGION });
 const docClient = DynamoDBDocumentClient.from(dynamoClient);
 const s3Client = new S3Client({ region: process.env.REGION });
 
-const PHOTOS_TABLE = process.env.PHOTOS_TABLE!;
-const PHOTOS_BUCKET = process.env.PHOTOS_BUCKET!;
-const THUMBNAILS_BUCKET = process.env.THUMBNAILS_BUCKET!;
+const PHOTOS_TABLE = process.env.PHOTOS_TABLE_NAME!;
+const PHOTOS_BUCKET = process.env.PHOTOS_BUCKET_NAME!;
+const THUMBNAILS_BUCKET = process.env.THUMBNAILS_BUCKET_NAME!;
+const PROCESSED_BUCKET = process.env.PROCESSED_BUCKET_NAME!;
 
 const corsHeaders: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',
@@ -48,26 +49,61 @@ async function getPhotos(event: APIGatewayProxyEvent): Promise<APIGatewayProxyRe
   try {
     const userId = getUserIdFromEvent(event);
 
-    const command = new QueryCommand({
-      TableName: PHOTOS_TABLE,
-      IndexName: 'UserIndex',
-      KeyConditionExpression: 'userId = :userId',
-      ExpressionAttributeValues: {
+    // Get query parameters for search/filtering
+    const queryParams = event.queryStringParameters || {};
+    const searchTag = queryParams.tag;
+    const searchTerm = queryParams.search;
+    const status = queryParams.status || 'processed'; // Default to processed images only
+
+    let command: QueryCommand;
+
+    if (searchTag || searchTerm) {
+      // Use scan with filters for tag-based search
+      command = new QueryCommand({
+        TableName: PHOTOS_TABLE,
+        IndexName: 'UserIndex',
+        KeyConditionExpression: 'userId = :userId',
+        FilterExpression: buildFilterExpression(searchTag, searchTerm, status),
+        ExpressionAttributeValues: buildExpressionAttributeValues(userId, searchTag, searchTerm, status),
+        ScanIndexForward: false, // Most recent first
+      });
+    } else {
+      // Regular query by user
+      const expressionAttributeValues: any = {
         ':userId': userId,
-      },
-      ScanIndexForward: false, // Most recent first
-    });
+      };
+
+      let filterExpression = '';
+      if (status) {
+        filterExpression = '#status = :status';
+        expressionAttributeValues[':status'] = status;
+      }
+
+      command = new QueryCommand({
+        TableName: PHOTOS_TABLE,
+        IndexName: 'UserIndex',
+        KeyConditionExpression: 'userId = :userId',
+        FilterExpression: filterExpression || undefined,
+        ExpressionAttributeNames: filterExpression ? { '#status': 'status' } : undefined,
+        ExpressionAttributeValues: expressionAttributeValues,
+        ScanIndexForward: false, // Most recent first
+      });
+    }
 
     const result = await docClient.send(command);
 
     // Generate presigned URLs for photos and thumbnails
     const photosWithUrls = await Promise.all(
       (result.Items as Photo[]).map(async (photo) => {
+        // Use processed image URL if available, otherwise use original
+        const imageKey = photo.processedKey || photo.s3Key;
+        const bucketName = photo.processedKey ? process.env.PROCESSED_BUCKET : PHOTOS_BUCKET;
+
         const photoUrl = await getSignedUrl(
           s3Client,
           new GetObjectCommand({
-            Bucket: PHOTOS_BUCKET,
-            Key: photo.s3Key,
+            Bucket: bucketName,
+            Key: imageKey,
           }),
           { expiresIn: 3600 }
         );
@@ -364,6 +400,50 @@ async function getUploadUrl(event: APIGatewayProxyEvent): Promise<APIGatewayProx
     console.error('Error generating upload URL:', error);
     return createResponse(500, { error: 'Failed to generate upload URL' });
   }
+}
+
+// Helper functions for search/filtering
+function buildFilterExpression(searchTag?: string, searchTerm?: string, status?: string): string {
+  const filters: string[] = [];
+
+  if (status) {
+    filters.push('#status = :status');
+  }
+
+  if (searchTag) {
+    filters.push('contains(tags, :searchTag) OR contains(autoTags, :searchTag)');
+  }
+
+  if (searchTerm) {
+    filters.push('(contains(title, :searchTerm) OR contains(description, :searchTerm))');
+  }
+
+  return filters.join(' AND ');
+}
+
+function buildExpressionAttributeValues(
+  userId: string,
+  searchTag?: string,
+  searchTerm?: string,
+  status?: string
+): Record<string, any> {
+  const values: Record<string, any> = {
+    ':userId': userId,
+  };
+
+  if (status) {
+    values[':status'] = status;
+  }
+
+  if (searchTag) {
+    values[':searchTag'] = searchTag.toLowerCase();
+  }
+
+  if (searchTerm) {
+    values[':searchTerm'] = searchTerm.toLowerCase();
+  }
+
+  return values;
 }
 
 export const handler = async (event: APIGatewayProxyEvent, context: Context): Promise<APIGatewayProxyResult> => {
