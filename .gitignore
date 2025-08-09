@@ -9,6 +9,8 @@ build/
 .next/
 .nuxt/
 
+scripts/
+
 # TypeScript compilation outputs (CDK infrastructure)
 backend/infra/**/*.js
 backend/infra/**/*.d.ts
@@ -57,7 +59,9 @@ pids/
 
 # AWS CDK
 cdk.out/
+cdk-temp/
 .cdk.staging/
+*.zip
 
 # SAM
 .aws-sam/
@@ -85,3 +89,10 @@ coverage/
 # Temporary files
 *.tmp
 *.temp
+
+# CDK and build artifacts
+*.d.ts.map
+*.js.map
+asset.*
+cdk-temp/
+backend/infra/cdk-temp/

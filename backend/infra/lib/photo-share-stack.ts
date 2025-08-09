@@ -48,8 +48,24 @@ export class PhotoShareStack extends cdk.Stack {
       },
     });
 
-    // DynamoDB Tables - import existing table to avoid drift
-    const photosTable = dynamodb.Table.fromTableName(this, 'PhotosTable', `photos-${props.environment}`);
+    // DynamoDB Tables
+    const photosTable = new dynamodb.Table(this, 'PhotosTable', {
+      tableName: `photos-${props.environment}`,
+      partitionKey: { name: 'id', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'createdAt', type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      pointInTimeRecoverySpecification: {
+        pointInTimeRecoveryEnabled: false,
+      },
+    });
+
+    // Add Global Secondary Index for querying by user
+    photosTable.addGlobalSecondaryIndex({
+      indexName: 'UserIndex',
+      partitionKey: { name: 'userId', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'createdAt', type: dynamodb.AttributeType.STRING },
+    });
 
     // S3 Buckets
     const photosBucket = new s3.Bucket(this, 'PhotosBucket', {
@@ -231,7 +247,11 @@ export class PhotoShareStack extends cdk.Stack {
       code: lambda.Code.fromAsset(path.join(__dirname, '../../lambdas/photo-api'), {
         bundling: {
           image: lambda.Runtime.NODEJS_18_X.bundlingImage,
-          command: ['bash', '-c', 'npm install && npm run build && cp -r dist/* /asset-output/'],
+          command: [
+            'bash',
+            '-c',
+            'npm install && npm run build && cp -r dist/* /asset-output/ && cp -r node_modules /asset-output/',
+          ],
         },
       }),
       environment: {
@@ -252,7 +272,11 @@ export class PhotoShareStack extends cdk.Stack {
       code: lambda.Code.fromAsset(path.join(__dirname, '../../lambdas/thumbnail'), {
         bundling: {
           image: lambda.Runtime.NODEJS_18_X.bundlingImage,
-          command: ['bash', '-c', 'npm install && npm run build && cp -r dist/* /asset-output/'],
+          command: [
+            'bash',
+            '-c',
+            'npm install && npm run build && cp -r dist/* /asset-output/ && cp -r node_modules /asset-output/',
+          ],
         },
       }),
       environment: {
@@ -270,7 +294,11 @@ export class PhotoShareStack extends cdk.Stack {
       code: lambda.Code.fromAsset(path.join(__dirname, '../../lambdas/image-processor'), {
         bundling: {
           image: lambda.Runtime.NODEJS_18_X.bundlingImage,
-          command: ['bash', '-c', 'npm install && npm run build && cp -r dist/* /asset-output/'],
+          command: [
+            'bash',
+            '-c',
+            'npm install && npm run build && cp -r dist/* /asset-output/ && cp -r node_modules /asset-output/',
+          ],
         },
       }),
       environment: {
@@ -333,6 +361,32 @@ export class PhotoShareStack extends cdk.Stack {
           'Referer',
         ],
         allowCredentials: true,
+      },
+    });
+
+    // Add Gateway Response for 401 Unauthorized to include CORS headers
+    api.addGatewayResponse('UnauthorizedResponse', {
+      type: apigateway.ResponseType.UNAUTHORIZED,
+      statusCode: '401',
+      responseHeaders: {
+        'Access-Control-Allow-Origin': "'*'",
+        'Access-Control-Allow-Headers':
+          "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent,X-Amz-Content-Sha256,Accept,Origin,Referer'",
+        'Access-Control-Allow-Methods': "'GET,POST,PUT,DELETE,OPTIONS'",
+        'Access-Control-Allow-Credentials': "'true'",
+      },
+    });
+
+    // Add Gateway Response for 403 Forbidden to include CORS headers
+    api.addGatewayResponse('ForbiddenResponse', {
+      type: apigateway.ResponseType.ACCESS_DENIED,
+      statusCode: '403',
+      responseHeaders: {
+        'Access-Control-Allow-Origin': "'*'",
+        'Access-Control-Allow-Headers':
+          "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent,X-Amz-Content-Sha256,Accept,Origin,Referer'",
+        'Access-Control-Allow-Methods': "'GET,POST,PUT,DELETE,OPTIONS'",
+        'Access-Control-Allow-Credentials': "'true'",
       },
     });
 

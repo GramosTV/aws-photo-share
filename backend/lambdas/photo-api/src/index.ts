@@ -32,11 +32,23 @@ const corsHeaders: Record<string, string> = {
 };
 
 function getUserIdFromEvent(event: APIGatewayProxyEvent): string {
+  // For Cognito User Pool authorizer, user info is in event.requestContext.authorizer.claims
   const claims = event.requestContext.authorizer?.claims;
-  if (!claims || !claims.sub) {
-    throw new Error('User not authenticated');
+  if (claims && claims.sub) {
+    return claims.sub;
   }
-  return claims.sub;
+
+  // Fallback: check if user info is in different location
+  const cognitoUsername = event.requestContext.authorizer?.principalId;
+  if (cognitoUsername) {
+    return cognitoUsername;
+  }
+
+  // Debug: log the entire authorizer context
+  console.log('Authorization context:', JSON.stringify(event.requestContext.authorizer, null, 2));
+  console.log('Full request context:', JSON.stringify(event.requestContext, null, 2));
+
+  throw new Error('User not authenticated - no user ID found in authorization context');
 }
 
 function createResponse<T>(statusCode: number, body: T | ErrorResponse): APIGatewayProxyResult {
@@ -451,6 +463,7 @@ function buildExpressionAttributeValues(
 export const handler = async (event: APIGatewayProxyEvent, context: Context): Promise<APIGatewayProxyResult> => {
   console.log('Event:', JSON.stringify(event, null, 2));
 
+  // Always return CORS headers for OPTIONS requests
   if (event.httpMethod === 'OPTIONS') {
     return createResponse(200, {});
   }
@@ -477,6 +490,13 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
     }
   } catch (error) {
     console.error('Unhandled error:', error);
+
+    // Handle authentication errors specifically
+    if (error instanceof Error && error.message === 'User not authenticated') {
+      return createResponse(401, { error: 'Unauthorized: User not authenticated' });
+    }
+
+    // Handle all other errors
     return createResponse(500, { error: 'Internal server error' });
   }
 };
