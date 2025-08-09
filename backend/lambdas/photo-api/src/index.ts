@@ -169,7 +169,7 @@ async function createPhoto(event: APIGatewayProxyEvent): Promise<APIGatewayProxy
     const photo: Photo = {
       id: photoId, // Primary key
       userId,
-      photoId,
+      photoId, // Same as id for compatibility
       title: body.title || 'Untitled',
       description: body.description || '',
       s3Key: body.s3Key,
@@ -206,21 +206,25 @@ async function getPhoto(event: APIGatewayProxyEvent): Promise<APIGatewayProxyRes
       return createResponse(400, { error: 'photoId is required' });
     }
 
-    const command = new GetCommand({
+    // Query using the UserIndex to find the photo
+    const queryCommand = new QueryCommand({
       TableName: PHOTOS_TABLE,
-      Key: {
-        userId,
-        photoId,
+      IndexName: 'UserIndex',
+      KeyConditionExpression: 'userId = :userId',
+      FilterExpression: 'id = :photoId',
+      ExpressionAttributeValues: {
+        ':userId': userId,
+        ':photoId': photoId,
       },
     });
 
-    const result = await docClient.send(command);
+    const result = await docClient.send(queryCommand);
 
-    if (!result.Item) {
+    if (!result.Items || result.Items.length === 0) {
       return createResponse(404, { error: 'Photo not found' });
     }
 
-    const photo = result.Item as Photo;
+    const photo = result.Items[0] as Photo;
 
     // Generate presigned URLs
     const photoUrl = await getSignedUrl(
@@ -266,22 +270,40 @@ async function deletePhoto(event: APIGatewayProxyEvent): Promise<APIGatewayProxy
       return createResponse(400, { error: 'photoId is required' });
     }
 
-    // First get the photo to get S3 keys
+    // First find the photo by ID to get the createdAt timestamp (needed for the primary key)
     const getCommand = new GetCommand({
       TableName: PHOTOS_TABLE,
       Key: {
-        userId,
-        photoId,
+        id: photoId,
+        createdAt: '', // We need to find this
       },
     });
 
-    const result = await docClient.send(getCommand);
+    // Since we don't know the createdAt, we need to query by the photo ID
+    // We'll use a query on the UserIndex to find the photo
+    const queryCommand = new QueryCommand({
+      TableName: PHOTOS_TABLE,
+      IndexName: 'UserIndex',
+      KeyConditionExpression: 'userId = :userId',
+      FilterExpression: 'id = :photoId',
+      ExpressionAttributeValues: {
+        ':userId': userId,
+        ':photoId': photoId,
+      },
+    });
 
-    if (!result.Item) {
+    const queryResult = await docClient.send(queryCommand);
+
+    if (!queryResult.Items || queryResult.Items.length === 0) {
       return createResponse(404, { error: 'Photo not found' });
     }
 
-    const photo = result.Item as Photo;
+    const photo = queryResult.Items[0] as Photo;
+
+    // Verify the photo belongs to the user
+    if (photo.userId !== userId) {
+      return createResponse(403, { error: 'Unauthorized to delete this photo' });
+    }
 
     // Delete from S3
     await s3Client.send(
@@ -300,12 +322,12 @@ async function deletePhoto(event: APIGatewayProxyEvent): Promise<APIGatewayProxy
       );
     }
 
-    // Delete from DynamoDB
+    // Delete from DynamoDB using the correct primary key
     const deleteCommand = new DeleteCommand({
       TableName: PHOTOS_TABLE,
       Key: {
-        userId,
-        photoId,
+        id: photo.id,
+        createdAt: photo.createdAt,
       },
     });
 
@@ -333,22 +355,25 @@ async function sharePhoto(event: APIGatewayProxyEvent): Promise<APIGatewayProxyR
 
     const body: SharePhotoRequest = JSON.parse(event.body);
 
-    // Get the photo
-    const getCommand = new GetCommand({
+    // Query using the UserIndex to find the photo
+    const queryCommand = new QueryCommand({
       TableName: PHOTOS_TABLE,
-      Key: {
-        userId,
-        photoId,
+      IndexName: 'UserIndex',
+      KeyConditionExpression: 'userId = :userId',
+      FilterExpression: 'id = :photoId',
+      ExpressionAttributeValues: {
+        ':userId': userId,
+        ':photoId': photoId,
       },
     });
 
-    const result = await docClient.send(getCommand);
+    const result = await docClient.send(queryCommand);
 
-    if (!result.Item) {
+    if (!result.Items || result.Items.length === 0) {
       return createResponse(404, { error: 'Photo not found' });
     }
 
-    const photo = result.Item as Photo;
+    const photo = result.Items[0] as Photo;
 
     // Update photo with sharing settings
     const updateCommand = new PutCommand({

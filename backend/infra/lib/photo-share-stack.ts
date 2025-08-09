@@ -436,12 +436,18 @@ export class PhotoShareStack extends cdk.Stack {
       authorizer,
     });
 
-    const photoResource = photosResource.addResource('{id}');
+    const photoResource = photosResource.addResource('{photoId}');
     photoResource.addMethod('GET', new apigateway.LambdaIntegration(photoApiFunction));
     photoResource.addMethod('PUT', new apigateway.LambdaIntegration(photoApiFunction), {
       authorizer,
     });
     photoResource.addMethod('DELETE', new apigateway.LambdaIntegration(photoApiFunction), {
+      authorizer,
+    });
+
+    // Share endpoint
+    const shareResource = photoResource.addResource('share');
+    shareResource.addMethod('POST', new apigateway.LambdaIntegration(photoApiFunction), {
       authorizer,
     });
 
