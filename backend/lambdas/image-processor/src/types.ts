@@ -9,6 +9,8 @@ export interface ImageProcessingResult {
   format: string;
   tags?: string[];
   confidence?: number;
+  processedImage?: Buffer;
+  thumbnail?: Buffer;
 }
 
 export interface PhotoMetadata {

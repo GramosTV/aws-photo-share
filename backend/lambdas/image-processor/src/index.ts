@@ -1,7 +1,7 @@
 import { S3Event, S3Handler } from 'aws-lambda';
 import { S3Client, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, UpdateCommand, GetCommand } from '@aws-sdk/lib-dynamodb';
+import { DynamoDBDocumentClient, UpdateCommand, GetCommand, ScanCommand } from '@aws-sdk/lib-dynamodb';
 import { RekognitionClient, DetectLabelsCommand, Label } from '@aws-sdk/client-rekognition';
 import sharp from 'sharp';
 import { ImageProcessingResult, PhotoMetadata } from './types';
@@ -135,6 +135,8 @@ async function processImage(imageBuffer: Buffer, originalKey: string): Promise<I
     width: metadata.width || 0,
     height: metadata.height || 0,
     format: metadata.format || 'unknown',
+    processedImage, // Include the actual processed image buffer
+    thumbnail, // Include the actual thumbnail buffer
   };
 }
 
@@ -185,19 +187,16 @@ async function analyzeImageWithRekognition(
 }
 
 async function uploadProcessedImages(result: ImageProcessingResult, autoTags: string[]): Promise<void> {
-  // Re-process images for upload (since we only have the result metadata)
-  // In a real implementation, you'd want to pass the processed buffers
-  // For now, we'll create placeholder uploads
-
-  const processedImageBuffer = Buffer.from('processed-image-placeholder');
-  const thumbnailBuffer = Buffer.from('thumbnail-placeholder');
+  if (!result.processedImage || !result.thumbnail) {
+    throw new Error('Processed image buffers are missing');
+  }
 
   // Upload processed image
   await s3Client.send(
     new PutObjectCommand({
       Bucket: PROCESSED_BUCKET,
       Key: result.processedKey.replace('processed/', ''),
-      Body: processedImageBuffer,
+      Body: result.processedImage,
       ContentType: 'image/jpeg',
       Metadata: {
         'auto-tags': autoTags.join(','),
@@ -212,7 +211,7 @@ async function uploadProcessedImages(result: ImageProcessingResult, autoTags: st
     new PutObjectCommand({
       Bucket: THUMBNAILS_BUCKET,
       Key: result.thumbnailKey.replace('thumbnails/', ''),
-      Body: thumbnailBuffer,
+      Body: result.thumbnail,
       ContentType: 'image/jpeg',
       Metadata: {
         'original-key': result.originalKey,
@@ -228,26 +227,33 @@ async function updatePhotoMetadata(
   autoTags: string[],
   confidence: number
 ): Promise<void> {
-  // First, find the photo by s3Key
-  const photos = await docClient.send(
-    new GetCommand({
+  // Find the photo by s3Key using a scan (since s3Key is not a key attribute)
+  const scanResult = await docClient.send(
+    new ScanCommand({
       TableName: PHOTOS_TABLE,
-      Key: { id: originalKey }, // Assuming the key maps to photo ID
+      FilterExpression: 's3Key = :s3Key',
+      ExpressionAttributeValues: {
+        ':s3Key': originalKey,
+      },
     })
   );
 
-  if (!photos.Item) {
-    console.error(`Photo not found in database for key: ${originalKey}`);
+  if (!scanResult.Items || scanResult.Items.length === 0) {
+    console.error(`Photo not found in database for s3Key: ${originalKey}`);
     return;
   }
 
+  const photo = scanResult.Items[0];
   const now = new Date().toISOString();
 
-  // Update the photo metadata
+  // Update the photo metadata using the correct primary key
   await docClient.send(
     new UpdateCommand({
       TableName: PHOTOS_TABLE,
-      Key: { id: photos.Item.id },
+      Key: {
+        id: photo.id,
+        createdAt: photo.createdAt,
+      },
       UpdateExpression: `
       SET 
         processedKey = :processedKey,
@@ -284,19 +290,26 @@ async function updatePhotoMetadata(
 
 async function updatePhotoStatus(s3Key: string, status: 'processing' | 'processed' | 'failed'): Promise<void> {
   try {
-    // Find photo by s3Key and update status
-    const photos = await docClient.send(
-      new GetCommand({
+    // Find photo by s3Key using scan
+    const scanResult = await docClient.send(
+      new ScanCommand({
         TableName: PHOTOS_TABLE,
-        Key: { id: s3Key },
+        FilterExpression: 's3Key = :s3Key',
+        ExpressionAttributeValues: {
+          ':s3Key': s3Key,
+        },
       })
     );
 
-    if (photos.Item) {
+    if (scanResult.Items && scanResult.Items.length > 0) {
+      const photo = scanResult.Items[0];
       await docClient.send(
         new UpdateCommand({
           TableName: PHOTOS_TABLE,
-          Key: { id: photos.Item.id },
+          Key: {
+            id: photo.id,
+            createdAt: photo.createdAt,
+          },
           UpdateExpression: 'SET #status = :status, updatedAt = :updatedAt',
           ExpressionAttributeNames: {
             '#status': 'status',

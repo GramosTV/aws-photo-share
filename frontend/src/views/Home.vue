@@ -212,6 +212,7 @@
             >
               <div class="absolute bottom-4 left-4 right-4">
                 <button
+                  @click="openPhotoDetail(photo)"
                   class="w-full bg-white/20 backdrop-blur-sm text-white py-2 px-4 rounded-lg hover:bg-white/30 transition-all duration-300"
                 >
                   View Details
@@ -248,7 +249,7 @@
             </h3>
             <p class="text-white/60 text-sm mb-4">{{ formatDate(photo.createdAt) }}</p>
 
-            <!-- Tags Display -->
+            <!-- Tags Display with AI Indicator -->
             <div v-if="photo.tags && photo.tags.length > 0" class="mb-4">
               <div class="flex flex-wrap gap-2">
                 <span
@@ -263,6 +264,31 @@
                   class="tag inline-block bg-gray-500/20 text-gray-300 text-xs px-3 py-1 rounded-full border border-gray-400/30"
                 >
                   +{{ photo.tags.length - 3 }} more
+                </span>
+              </div>
+            </div>
+
+            <!-- AI-detected Tags (if different from manual tags) -->
+            <div v-if="photo.autoTags && photo.autoTags.length > 0" class="mb-4">
+              <div class="flex items-center gap-2 mb-2">
+                <span class="text-xs text-purple-300 font-semibold">🤖 AI Detected:</span>
+                <span v-if="photo.rekognitionConfidence" class="text-xs text-green-400">
+                  {{ photo.rekognitionConfidence }}% confidence
+                </span>
+              </div>
+              <div class="flex flex-wrap gap-2">
+                <span
+                  v-for="tag in photo.autoTags.slice(0, 2)"
+                  :key="tag"
+                  class="ai-tag inline-block bg-gradient-to-r from-purple-500/20 to-pink-500/20 text-purple-200 text-xs px-3 py-1 rounded-full border border-purple-400/30 hover:bg-purple-500/30 transition-colors duration-300"
+                >
+                  🏷️ {{ tag }}
+                </span>
+                <span
+                  v-if="photo.autoTags.length > 2"
+                  class="ai-tag inline-block bg-gradient-to-r from-purple-500/20 to-pink-500/20 text-purple-200 text-xs px-3 py-1 rounded-full border border-purple-400/30"
+                >
+                  +{{ photo.autoTags.length - 2 }} more AI tags
                 </span>
               </div>
             </div>
@@ -308,12 +334,21 @@
         </div>
       </div>
     </div>
+
+    <!-- Photo Detail Modal -->
+    <PhotoDetail
+      :photo="selectedPhoto"
+      @close="closePhotoDetail"
+      @delete-photo="handleDeletePhoto"
+      @update-photo="handleUpdatePhoto"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue';
 import { getCurrentUser, fetchAuthSession } from 'aws-amplify/auth';
+import PhotoDetail from '@/components/PhotoDetail.vue';
 import type { Photo } from '@/types';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
@@ -323,6 +358,7 @@ const loading = ref<boolean>(false);
 const photos = ref<Photo[]>([]);
 const searchQuery = ref<string>('');
 const selectedTag = ref<string>('');
+const selectedPhoto = ref<Photo | null>(null);
 
 // Get authentication token
 const getAuthToken = async (): Promise<string> => {
@@ -443,6 +479,32 @@ const handleImageError = (event: Event): void => {
 // Format date for display
 const formatDate = (dateString: string): string => {
   return new Date(dateString).toLocaleDateString();
+};
+
+// Photo detail modal methods
+const openPhotoDetail = (photo: Photo): void => {
+  selectedPhoto.value = photo;
+};
+
+const closePhotoDetail = (): void => {
+  selectedPhoto.value = null;
+};
+
+const handleDeletePhoto = async (photoId: string): Promise<void> => {
+  try {
+    await apiCall(`/photos/${photoId}`, 'DELETE');
+    photos.value = photos.value.filter((photo) => photo.id !== photoId);
+    closePhotoDetail();
+  } catch (error) {
+    console.error('Error deleting photo:', error);
+  }
+};
+
+const handleUpdatePhoto = (updatedPhoto: Photo): void => {
+  const index = photos.value.findIndex((photo) => photo.id === updatedPhoto.id);
+  if (index !== -1) {
+    photos.value[index] = updatedPhoto;
+  }
 };
 
 onMounted(() => {
@@ -622,6 +684,34 @@ onMounted(() => {
 .tag:hover {
   transform: translateY(-2px);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+/* AI Tag effects */
+.ai-tag {
+  transition: all 0.3s ease;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+}
+
+.ai-tag:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(139, 92, 246, 0.3);
+}
+
+.ai-tag::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+  transition: left 0.5s ease;
+}
+
+.ai-tag:hover::before {
+  left: 100%;
 }
 
 /* Action button animations */
