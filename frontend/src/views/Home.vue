@@ -220,16 +220,21 @@
             </div>
 
             <!-- Processing Status Badge -->
-            <div v-if="photo.processedAt" class="absolute top-3 right-3">
+            <div v-if="photo.status === 'processed'" class="absolute top-3 right-3">
               <span class="status-badge bg-green-500/90 text-white text-xs px-3 py-1 rounded-full backdrop-blur-sm">
                 ✓ Processed
               </span>
             </div>
-            <div v-else-if="photo.processingStatus === 'processing'" class="absolute top-3 right-3">
+            <div v-else-if="photo.status === 'processing'" class="absolute top-3 right-3">
               <span
                 class="status-badge bg-yellow-500/90 text-white text-xs px-3 py-1 rounded-full backdrop-blur-sm animate-pulse"
               >
                 ⏳ Processing...
+              </span>
+            </div>
+            <div v-else-if="photo.status === 'failed'" class="absolute top-3 right-3">
+              <span class="status-badge bg-red-500/90 text-white text-xs px-3 py-1 rounded-full backdrop-blur-sm">
+                ❌ Failed
               </span>
             </div>
           </div>
@@ -243,21 +248,21 @@
             </h3>
             <p class="text-white/60 text-sm mb-4">{{ formatDate(photo.createdAt) }}</p>
 
-            <!-- Auto Tags -->
-            <div v-if="photo.autoTags && photo.autoTags.length > 0" class="mb-4">
+            <!-- Tags Display -->
+            <div v-if="photo.tags && photo.tags.length > 0" class="mb-4">
               <div class="flex flex-wrap gap-2">
                 <span
-                  v-for="tag in photo.autoTags.slice(0, 3)"
+                  v-for="tag in photo.tags.slice(0, 3)"
                   :key="tag"
                   class="tag inline-block bg-purple-500/20 text-purple-300 text-xs px-3 py-1 rounded-full border border-purple-400/30 hover:bg-purple-500/30 transition-colors duration-300"
                 >
                   {{ tag }}
                 </span>
                 <span
-                  v-if="photo.autoTags.length > 3"
+                  v-if="photo.tags.length > 3"
                   class="tag inline-block bg-gray-500/20 text-gray-300 text-xs px-3 py-1 rounded-full border border-gray-400/30"
                 >
-                  +{{ photo.autoTags.length - 3 }} more
+                  +{{ photo.tags.length - 3 }} more
                 </span>
               </div>
             </div>
@@ -366,6 +371,7 @@ const debouncedSearch = (): void => {
 const availableTags = computed(() => {
   const tags = new Set<string>();
   photos.value.forEach((photo) => {
+    photo.tags?.forEach((tag) => tags.add(tag));
     photo.autoTags?.forEach((tag) => tags.add(tag));
     photo.manualTags?.forEach((tag) => tags.add(tag));
   });
@@ -423,7 +429,8 @@ const clearFilters = (): void => {
 
 // Get best available image URL (processed > thumbnail > original)
 const getImageUrl = (photo: Photo): string => {
-  return photo.processedUrl || photo.thumbnailUrl || photo.url;
+  // Backend returns photoUrl (main image) and thumbnailUrl
+  return photo.photoUrl || photo.thumbnailUrl || photo.url || '';
 };
 
 // Handle image load errors

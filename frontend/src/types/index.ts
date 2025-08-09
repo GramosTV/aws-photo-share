@@ -3,22 +3,33 @@
 export interface Photo {
   id: string;
   title: string;
-  url: string;
-  thumbnailUrl?: string;
+  description?: string;
+  fileName: string;
+  fileSize: number;
+  mimeType: string;
+  s3Key: string;
+  photoUrl: string; // Generated signed URL for the main image
+  thumbnailUrl?: string; // Generated signed URL for thumbnail
   processedUrl?: string;
   processedKey?: string;
+  thumbnailKey?: string;
   userId: string;
+  photoId: string;
   createdAt: string;
   updatedAt: string;
+  status: 'processing' | 'processed' | 'failed'; // Processing status
   processingStatus?: 'pending' | 'processing' | 'completed' | 'failed';
   processedAt?: string;
   autoTags?: string[];
   manualTags?: string[];
+  tags?: string[]; // Combined tags
+  isPublic: boolean;
   dimensions?: {
     width: number;
     height: number;
   };
   rekognitionConfidence?: number;
+  url?: string; // Legacy fallback
 }
 
 export interface FileWithMetadata extends File {
