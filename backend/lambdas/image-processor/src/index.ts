@@ -3,7 +3,7 @@ import { S3Client, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, UpdateCommand, GetCommand, ScanCommand } from '@aws-sdk/lib-dynamodb';
 import { RekognitionClient, DetectLabelsCommand, Label } from '@aws-sdk/client-rekognition';
-import sharp from 'sharp';
+// import sharp from 'sharp';  // Temporarily disabled due to runtime issues
 import { ImageProcessingResult, PhotoMetadata } from './types';
 
 const s3Client = new S3Client({ region: process.env.AWS_REGION });
@@ -15,13 +15,6 @@ const PHOTOS_TABLE = process.env.PHOTOS_TABLE!;
 const PROCESSED_BUCKET = process.env.PROCESSED_BUCKET!;
 const THUMBNAILS_BUCKET = process.env.THUMBNAILS_BUCKET!;
 const ENABLE_REKOGNITION = process.env.ENABLE_REKOGNITION === 'true';
-
-// Image processing configurations
-const PROCESSED_IMAGE_QUALITY = 85;
-const PROCESSED_IMAGE_MAX_WIDTH = 1920;
-const PROCESSED_IMAGE_MAX_HEIGHT = 1080;
-const THUMBNAIL_SIZE = 300;
-const THUMBNAIL_QUALITY = 80;
 
 export const handler: S3Handler = async (event: S3Event): Promise<void> => {
   console.log('Processing S3 event:', JSON.stringify(event, null, 2));
@@ -39,31 +32,24 @@ export const handler: S3Handler = async (event: S3Event): Promise<void> => {
         continue;
       }
 
-      // Get the original image from S3
-      const originalImage = await getImageFromS3(bucket, key);
-
-      // Process the image
-      const result = await processImage(originalImage, key);
-
       // Get auto-tags using Rekognition if enabled
       let autoTags: string[] = [];
       let confidence = 0;
 
       if (ENABLE_REKOGNITION) {
         try {
+          console.log('Analyzing image with Rekognition...');
           const rekognitionResult = await analyzeImageWithRekognition(bucket, key);
           autoTags = rekognitionResult.tags;
           confidence = rekognitionResult.confidence;
+          console.log(`Rekognition found ${autoTags.length} tags with ${confidence}% confidence`);
         } catch (error) {
           console.warn('Rekognition analysis failed:', error);
         }
       }
 
-      // Upload processed images to S3
-      await uploadProcessedImages(result, autoTags);
-
-      // Update DynamoDB metadata
-      await updatePhotoMetadata(key, result, autoTags, confidence);
+      // Update DynamoDB metadata with AI data
+      await updatePhotoMetadata(key, autoTags, confidence);
 
       console.log(`Successfully processed image: ${key}`);
     } catch (error) {
@@ -98,46 +84,6 @@ async function getImageFromS3(bucket: string, key: string): Promise<Buffer> {
   }
 
   return Buffer.concat(chunks);
-}
-
-async function processImage(imageBuffer: Buffer, originalKey: string): Promise<ImageProcessingResult> {
-  // Get image metadata
-  const metadata = await sharp(imageBuffer).metadata();
-
-  // Generate keys for processed images
-  const processedKey = `processed/${originalKey}`;
-  const thumbnailKey = `thumbnails/${originalKey}`;
-
-  // Process main image (resize and optimize)
-  const processedImage = await sharp(imageBuffer)
-    .resize(PROCESSED_IMAGE_MAX_WIDTH, PROCESSED_IMAGE_MAX_HEIGHT, {
-      fit: 'inside',
-      withoutEnlargement: true,
-    })
-    .jpeg({ quality: PROCESSED_IMAGE_QUALITY, progressive: true })
-    .toBuffer();
-
-  // Create thumbnail
-  const thumbnail = await sharp(imageBuffer)
-    .resize(THUMBNAIL_SIZE, THUMBNAIL_SIZE, {
-      fit: 'cover',
-      position: 'center',
-    })
-    .jpeg({ quality: THUMBNAIL_QUALITY })
-    .toBuffer();
-
-  return {
-    originalKey,
-    processedKey,
-    thumbnailKey,
-    optimizedSize: processedImage.length,
-    thumbnailSize: thumbnail.length,
-    width: metadata.width || 0,
-    height: metadata.height || 0,
-    format: metadata.format || 'unknown',
-    processedImage, // Include the actual processed image buffer
-    thumbnail, // Include the actual thumbnail buffer
-  };
 }
 
 async function analyzeImageWithRekognition(
@@ -215,18 +161,13 @@ async function uploadProcessedImages(result: ImageProcessingResult, autoTags: st
       ContentType: 'image/jpeg',
       Metadata: {
         'original-key': result.originalKey,
-        'thumbnail-size': THUMBNAIL_SIZE.toString(),
+        'thumbnail-size': '300',
       },
     })
   );
 }
 
-async function updatePhotoMetadata(
-  originalKey: string,
-  result: ImageProcessingResult,
-  autoTags: string[],
-  confidence: number
-): Promise<void> {
+async function updatePhotoMetadata(originalKey: string, autoTags: string[], confidence: number): Promise<void> {
   // Find the photo by s3Key using a scan (since s3Key is not a key attribute)
   const scanResult = await docClient.send(
     new ScanCommand({
@@ -256,13 +197,6 @@ async function updatePhotoMetadata(
       },
       UpdateExpression: `
       SET 
-        processedKey = :processedKey,
-        thumbnailKey = :thumbnailKey,
-        processedSize = :processedSize,
-        thumbnailSize = :thumbnailSize,
-        width = :width,
-        height = :height,
-        format = :format,
         autoTags = :autoTags,
         rekognitionConfidence = :confidence,
         #status = :status,
@@ -272,13 +206,6 @@ async function updatePhotoMetadata(
         '#status': 'status',
       },
       ExpressionAttributeValues: {
-        ':processedKey': result.processedKey,
-        ':thumbnailKey': result.thumbnailKey,
-        ':processedSize': result.optimizedSize,
-        ':thumbnailSize': result.thumbnailSize,
-        ':width': result.width,
-        ':height': result.height,
-        ':format': result.format,
         ':autoTags': autoTags,
         ':confidence': confidence,
         ':status': 'processed',
