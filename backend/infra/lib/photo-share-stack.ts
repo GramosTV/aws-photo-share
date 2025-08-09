@@ -239,7 +239,7 @@ export class PhotoShareStack extends cdk.Stack {
       ],
     });
 
-    // Lambda Functions
+    // Lambda Functions with optimized bundling
     const photoApiFunction = new lambda.Function(this, 'PhotoApiFunction', {
       functionName: `photo-api-${props.environment}`,
       runtime: lambda.Runtime.NODEJS_18_X,
@@ -250,8 +250,18 @@ export class PhotoShareStack extends cdk.Stack {
           command: [
             'bash',
             '-c',
-            'npm install && npm run build && cp -r dist/* /asset-output/ && cp -r node_modules /asset-output/',
+            [
+              'npm ci --only=production --ignore-scripts',
+              'npm run build',
+              'cp -r dist/* /asset-output/',
+              'cp -r node_modules /asset-output/',
+            ].join(' && '),
           ],
+          user: 'root',
+          workingDirectory: '/asset-input',
+          environment: {
+            NPM_CONFIG_CACHE: '/tmp/.npm',
+          },
         },
       }),
       environment: {
@@ -275,8 +285,18 @@ export class PhotoShareStack extends cdk.Stack {
           command: [
             'bash',
             '-c',
-            'npm install && npm run build && cp -r dist/* /asset-output/ && cp -r node_modules /asset-output/',
+            [
+              'npm ci --only=production --ignore-scripts',
+              'npm run build',
+              'cp -r dist/* /asset-output/',
+              'cp -r node_modules /asset-output/',
+            ].join(' && '),
           ],
+          user: 'root',
+          workingDirectory: '/asset-input',
+          environment: {
+            NPM_CONFIG_CACHE: '/tmp/.npm',
+          },
         },
       }),
       environment: {
@@ -297,8 +317,18 @@ export class PhotoShareStack extends cdk.Stack {
           command: [
             'bash',
             '-c',
-            'npm install && npm run build && cp -r dist/* /asset-output/ && cp -r node_modules /asset-output/',
+            [
+              'npm ci --only=production --ignore-scripts',
+              'npm run build',
+              'cp -r dist/* /asset-output/',
+              'cp -r node_modules /asset-output/',
+            ].join(' && '),
           ],
+          user: 'root',
+          workingDirectory: '/asset-input',
+          environment: {
+            NPM_CONFIG_CACHE: '/tmp/.npm',
+          },
         },
       }),
       environment: {

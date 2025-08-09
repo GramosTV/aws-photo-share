@@ -308,15 +308,50 @@
 
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue';
-import { getCurrentUser } from 'aws-amplify/auth';
-import { get } from 'aws-amplify/api';
+import { getCurrentUser, fetchAuthSession } from 'aws-amplify/auth';
 import type { Photo } from '@/types';
+
+const API_URL = import.meta.env.VITE_API_URL || '';
 
 const isAuthenticated = ref<boolean>(false);
 const loading = ref<boolean>(false);
 const photos = ref<Photo[]>([]);
 const searchQuery = ref<string>('');
 const selectedTag = ref<string>('');
+
+// Get authentication token
+const getAuthToken = async (): Promise<string> => {
+  try {
+    const session = await fetchAuthSession();
+    const idToken = session.tokens?.idToken?.toString();
+    if (!idToken) {
+      throw new Error('No ID token available');
+    }
+    return idToken;
+  } catch (error) {
+    console.error('Failed to get auth token:', error);
+    throw error;
+  }
+};
+
+// Make authenticated API call
+const apiCall = async (path: string, method: string = 'GET', body?: any): Promise<any> => {
+  const token = await getAuthToken();
+  const response = await fetch(`${API_URL}${path}`, {
+    method,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+
+  if (!response.ok) {
+    throw new Error(`API call failed: ${response.status} ${response.statusText}`);
+  }
+
+  return response.json();
+};
 
 // Debounce search input
 let searchTimeout: ReturnType<typeof setTimeout>;
@@ -364,12 +399,7 @@ const loadPhotos = async (): Promise<void> => {
 
     const path = queryParams.toString() ? `/photos?${queryParams.toString()}` : '/photos';
 
-    const response = await get({
-      apiName: 'PhotoAPI',
-      path,
-    }).response;
-
-    const data = (await response.body.json()) as unknown as { photos: Photo[] };
+    const data = await apiCall(path);
     photos.value = data.photos || [];
   } catch (error) {
     console.error('Error loading photos:', error);

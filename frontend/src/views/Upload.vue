@@ -215,14 +215,50 @@
 
 <script setup lang="ts">
 import { ref } from 'vue';
-import { post } from 'aws-amplify/api';
+import { fetchAuthSession } from 'aws-amplify/auth';
 import type { FileWithMetadata, UploadProgress } from '@/types';
+
+const API_URL = import.meta.env.VITE_API_URL || '';
 
 const selectedFiles = ref<FileWithMetadata[]>([]);
 const uploading = ref<boolean>(false);
 const isDragOver = ref<boolean>(false);
 const uploadProgress = ref<UploadProgress[]>([]);
 const fileInput = ref<HTMLInputElement>();
+
+// Get authentication token
+const getAuthToken = async (): Promise<string> => {
+  try {
+    const session = await fetchAuthSession();
+    const idToken = session.tokens?.idToken?.toString();
+    if (!idToken) {
+      throw new Error('No ID token available');
+    }
+    return idToken;
+  } catch (error) {
+    console.error('Failed to get auth token:', error);
+    throw error;
+  }
+};
+
+// Make authenticated API call
+const apiCall = async (path: string, method: string = 'GET', body?: any): Promise<any> => {
+  const token = await getAuthToken();
+  const response = await fetch(`${API_URL}${path}`, {
+    method,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+
+  if (!response.ok) {
+    throw new Error(`API call failed: ${response.status} ${response.statusText}`);
+  }
+
+  return response.json();
+};
 
 // Handle file selection
 const handleFileSelect = (event: Event): void => {
@@ -301,21 +337,10 @@ const handleUpload = async (): Promise<void> => {
 
       try {
         // Step 1: Get pre-signed upload URL from our API
-        const uploadUrlResponse = await post({
-          apiName: 'PhotoAPI',
-          path: '/upload-url',
-          options: {
-            body: {
-              fileName: file.name,
-              fileType: file.type,
-            },
-          },
-        }).response;
-
-        const uploadData = (await uploadUrlResponse.body.json()) as unknown as {
-          uploadUrl: string;
-          s3Key: string;
-        };
+        const uploadData = await apiCall('/upload-url', 'POST', {
+          fileName: file.name,
+          fileType: file.type,
+        });
 
         // Step 2: Upload directly to S3 using pre-signed URL
         const uploadResponse = await fetch(uploadData.uploadUrl, {
@@ -333,18 +358,12 @@ const handleUpload = async (): Promise<void> => {
         progressItem.progress = 100;
 
         // Step 3: Save metadata to our API
-        await post({
-          apiName: 'PhotoAPI',
-          path: '/photos',
-          options: {
-            body: {
-              title: file.title || file.name,
-              s3Key: uploadData.s3Key,
-              fileName: file.name,
-              fileSize: file.size,
-              mimeType: file.type,
-            },
-          },
+        await apiCall('/photos', 'POST', {
+          title: file.title || file.name,
+          s3Key: uploadData.s3Key,
+          fileName: file.name,
+          fileSize: file.size,
+          mimeType: file.type,
         });
 
         progressItem.status = 'completed';

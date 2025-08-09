@@ -67,7 +67,7 @@ async function getPhotos(event: APIGatewayProxyEvent): Promise<APIGatewayProxyRe
     const queryParams = event.queryStringParameters || {};
     const searchTag = queryParams.tag;
     const searchTerm = queryParams.search;
-    const status = queryParams.status || 'processed'; // Default to processed images only
+    const status = queryParams.status; // Don't default to 'processed' - show all photos
 
     let command: QueryCommand;
 
@@ -180,7 +180,7 @@ async function createPhoto(event: APIGatewayProxyEvent): Promise<APIGatewayProxy
       updatedAt: now,
       isPublic: body.isPublic || false,
       tags: body.tags || [],
-      status: 'processing',
+      status: 'processed', // Set to processed so photos show up immediately
     };
 
     const command = new PutCommand({

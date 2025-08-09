@@ -37,7 +37,6 @@ const amplifyConfig = {
     Cognito: {
       userPoolId: import.meta.env.VITE_USER_POOL_ID || '',
       userPoolClientId: import.meta.env.VITE_USER_POOL_CLIENT_ID || '',
-      identityPoolId: import.meta.env.VITE_IDENTITY_POOL_ID || '',
       region: import.meta.env.VITE_AWS_REGION || 'eu-central-1',
       signUpVerificationMethod: 'code' as const,
       loginWith: {
@@ -49,14 +48,6 @@ const amplifyConfig = {
     S3: {
       bucket: import.meta.env.VITE_PHOTOS_BUCKET || '',
       region: import.meta.env.VITE_AWS_REGION || 'eu-central-1',
-    },
-  },
-  API: {
-    REST: {
-      PhotoAPI: {
-        endpoint: import.meta.env.VITE_API_URL || '',
-        region: import.meta.env.VITE_AWS_REGION || 'eu-central-1',
-      },
     },
   },
 };
